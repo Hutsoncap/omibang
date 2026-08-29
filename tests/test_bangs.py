@@ -96,6 +96,38 @@ class BangRegistryTests(unittest.TestCase):
         self.assertIsNone(bangs.resolve_query("yt cats", registry))
         self.assertIsNone(bangs.resolve_query("!unknown cats", registry))
 
+    def test_prefix_matches_rank_exact_first_and_deduplicate_aliases(self) -> None:
+        yahoo = ["Yahoo!", "https://search.yahoo.com/search?p={searchTerms}"]
+        registry = {
+            "yahoo": yahoo,
+            "yad": ["Yandex Translate", "https://translate.yandex.com/?text={searchTerms}"],
+            "ya": ["Yandex", "https://yandex.com/search/?text={searchTerms}"],
+            "y": yahoo,
+            "z": ["Zed", "https://example.com/?q={searchTerms}"],
+        }
+
+        matches = bangs.match_triggers("Y", registry)
+
+        self.assertEqual(
+            [(match["trigger"], match["label"]) for match in matches],
+            [("y", "Yahoo!"), ("ya", "Yandex"), ("yad", "Yandex Translate")],
+        )
+
+    def test_prefix_matches_respect_result_limit(self) -> None:
+        registry = {
+            trigger: [trigger.upper(), f"https://example.com/{trigger}?q={{searchTerms}}"]
+            for trigger in ("a", "aa", "ab", "ac")
+        }
+
+        matches = bangs.match_triggers("a", registry, limit=2)
+
+        self.assertEqual([match["trigger"] for match in matches], ["a", "aa"])
+
+    def test_prefix_matches_reject_invalid_prefix(self) -> None:
+        registry = {"yt": ["YouTube", "https://youtube.com/?q={searchTerms}"]}
+
+        self.assertEqual(bangs.match_triggers("!y", registry), [])
+
     def test_fresh_cache_avoids_network(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "bangs.json"

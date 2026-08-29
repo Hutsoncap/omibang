@@ -82,6 +82,8 @@ Item {
   property string resolvingBangTrigger: ""
   property var bangCache: ({})
   property var bangSearchResult: null
+  property var bangSearchCandidates: []
+  property var bangMatchCache: ({})
   property bool bangSearchPending: false
   property string invalidBangTrigger: ""
 
@@ -373,11 +375,51 @@ Item {
     }
   }
 
+  function isBangAutocompleteInput(input) {
+    return !!input
+      && !input.defaultRequest
+      && !input.setDefault
+      && !input.selected
+      && !String(input.terms || "")
+  }
+
+  function applyBangMatches(input, bases) {
+    var matches = Array.isArray(bases) ? bases : []
+    var exact = null
+    var candidates = []
+    for (var i = 0; i < matches.length; i++) {
+      var base = matches[i]
+      if (!base || !base.trigger) continue
+      if (String(base.trigger).toLowerCase() === input.trigger) exact = base
+      if (root.isBangAutocompleteInput(input)) {
+        var candidate = root.buildBangResult(input, base)
+        if (candidate) candidates.push(candidate)
+      }
+    }
+    root.bangSearchResult = root.buildBangResult(input, exact)
+    root.bangSearchCandidates = candidates
+  }
+
   function cacheBang(base) {
     if (!base || !base.trigger || !base.label || !base.template) return
     var next = Object.assign({}, root.bangCache)
     next[String(base.trigger).toLowerCase()] = base
     root.bangCache = next
+  }
+
+  function cacheBangMatches(trigger, matches) {
+    var normalized = String(trigger || "").toLowerCase()
+    if (!normalized || !Array.isArray(matches)) return
+    var bangs = Object.assign({}, root.bangCache)
+    for (var i = 0; i < matches.length; i++) {
+      var base = matches[i]
+      if (!base || !base.trigger || !base.label || !base.template) continue
+      bangs[String(base.trigger).toLowerCase()] = base
+    }
+    root.bangCache = bangs
+    var prefixes = Object.assign({}, root.bangMatchCache)
+    prefixes[normalized] = matches
+    root.bangMatchCache = prefixes
   }
 
   function primeDefaultBang() {
@@ -392,16 +434,28 @@ Item {
     var input = root.bangInput(query)
     if (!input) {
       root.bangSearchResult = null
+      root.bangSearchCandidates = []
       root.bangSearchPending = false
       root.pendingBangTrigger = ""
       bangResolveTimer.stop()
       return
     }
 
+    var cachedMatches = root.bangMatchCache[input.trigger]
+    if (cachedMatches) {
+      root.applyBangMatches(input, cachedMatches)
+      root.bangSearchPending = false
+      root.invalidBangTrigger = root.bangSearchResult || root.bangSearchCandidates.length
+        ? "" : input.trigger
+      return
+    }
+
     var cached = root.bangCache[input.trigger]
     root.bangSearchResult = root.buildBangResult(input, cached)
-    root.bangSearchPending = !root.bangSearchResult
-    if (cached || root.resolvingBangTrigger === input.trigger || root.pendingBangTrigger === input.trigger)
+    root.bangSearchCandidates = root.isBangAutocompleteInput(input) && root.bangSearchResult
+      ? [root.bangSearchResult] : []
+    root.bangSearchPending = true
+    if (root.resolvingBangTrigger === input.trigger || root.pendingBangTrigger === input.trigger)
       return
 
     root.pendingBangTrigger = input.trigger
@@ -415,7 +469,7 @@ Item {
     root.resolvingBangTrigger = trigger
     bangResolveProc.trigger = trigger
     bangResolveProc.collected = ""
-    bangResolveProc.command = ["python3", root.bangScriptPath, "--resolve", "!" + trigger]
+    bangResolveProc.command = ["python3", root.bangScriptPath, "--match", trigger]
     bangResolveProc.running = true
   }
 
@@ -423,6 +477,7 @@ Item {
     if (!result || !result.trigger || !result.label) return null
     var terms = String(result.terms || "")
     var selected = result.selected && !terms
+    var choice = !result.setDefault && !terms && !selected && !result.defaultRequest
     var currentDefault = result.setDefault && result.trigger === root.defaultBang
     var label = result.setDefault
       ? "Default: " + String(result.label)
@@ -443,14 +498,14 @@ Item {
       action = "omarchy launch browser " + Util.shellQuote(String(result.url))
     }
     return {
-      itemId: result.setDefault ? "web-search.default-bang" : "web-search.bang",
+      itemId: result.setDefault ? "web-search.default-bang" : (choice ? "web-search.bang-choice:" + String(result.trigger) : "web-search.bang"),
       kind: "action",
       icon: currentDefault ? "✓" : "",
       iconFont: "",
       appIcon: "",
       appId: "",
       label: label,
-      target: "",
+      target: choice ? String(result.trigger) : "",
       detail: "",
       path: result.setDefault ? "Search settings" : "Web Search",
       childCount: 0,
@@ -483,15 +538,29 @@ Item {
     }
   }
 
-  function acceptBangInMenu() {
-    var result = root.bangSearchResult
-    if (!result || result.setDefault || !result.trigger || String(result.terms || "")) return false
-    root.setFilter("!" + String(result.trigger) + " ")
+  function acceptBangInMenu(trigger) {
+    var chosen = String(trigger || "")
+    if (!chosen) {
+      var result = root.bangSearchResult
+      if (!result || result.setDefault || !result.trigger || String(result.terms || "")) return false
+      chosen = String(result.trigger)
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(chosen)) return false
+    root.setFilter("!" + chosen + " ")
     return true
   }
 
+  function selectedBangChoice() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return ""
+    var row = displayModel.get(root.selectedIndex)
+    return String(row.itemId || "").indexOf("web-search.bang-choice:") === 0
+      ? String(row.target || "") : ""
+  }
+
   function requestBangInMenu() {
-    if (root.acceptBangInMenu()) return true
+    var choice = root.selectedBangChoice()
+    if (choice && root.acceptBangInMenu(choice)) return true
+    if (root.acceptBangInMenu("")) return true
     var query = root.filterText.trim()
     if (query === "!") {
       root.setFilter("!" + root.defaultBang + " ")
@@ -508,6 +577,11 @@ Item {
     if (query === "!") return "Tab search · ! default · ? list"
     if (query === "!!") return "Type iBang"
     if (query === "!?") return "Enter opens catalog"
+    if (root.bangSearchCandidates.length
+        && root.bangSearchCandidates[0].query === query) {
+      return root.bangSearchCandidates.length > 1
+        ? "↑↓ choose · Enter" : "Enter selects"
+    }
     var result = root.bangSearchResult
     if (result && result.query === query) {
       if (result.setDefault)
@@ -903,7 +977,16 @@ Item {
         for (var d = 0; d < drilldownRows.length; d++) drilldownRows[d].section = "drilldown"
       }
       rows = currentRows.concat(drilldownRows)
-      if (root.bangSearchResult && root.bangSearchResult.query === query) {
+      if (root.bangSearchCandidates.length
+          && root.bangSearchCandidates[0].query === query) {
+        var bangRows = []
+        for (var b = 0; b < root.bangSearchCandidates.length; b++) {
+          var candidateRow = root.bangDisplayRow(root.bangSearchCandidates[b])
+          if (candidateRow) bangRows.push(candidateRow)
+        }
+        rows = bangRows.concat(rows)
+      }
+      else if (root.bangSearchResult && root.bangSearchResult.query === query) {
         var bangRow = root.bangDisplayRow(root.bangSearchResult)
         if (bangRow) rows.unshift(bangRow)
       }
@@ -1049,7 +1132,9 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
-    if (row.itemId === "web-search.bang" && root.acceptBangInMenu()) return
+    if (String(row.itemId || "").indexOf("web-search.bang-choice:") === 0
+        && root.acceptBangInMenu(row.target)) return
+    if (row.itemId === "web-search.bang" && root.acceptBangInMenu("")) return
     if (row.kind === "status") return
     if (row.kind === "menu" || row.kind === "link") {
       root.setActiveMenu(row.target || row.itemId, true, fromPointer)
@@ -1216,19 +1301,21 @@ Item {
     onExited: {
       var finishedTrigger = bangResolveProc.trigger
       root.resolvingBangTrigger = ""
-      var resolvedBang = null
+      var matches = []
       try {
-        resolvedBang = JSON.parse(bangResolveProc.collected || "null")
-        root.cacheBang(resolvedBang)
+        matches = JSON.parse(bangResolveProc.collected || "[]")
+        if (!Array.isArray(matches)) matches = []
+        root.cacheBangMatches(finishedTrigger, matches)
       } catch (error) {
         console.warn("menu: failed to resolve bang search:", error)
       }
 
       var currentInput = root.bangInput(root.filterText)
       if (currentInput && currentInput.trigger === finishedTrigger) {
-        root.bangSearchResult = root.buildBangResult(currentInput, root.bangCache[finishedTrigger])
+        root.applyBangMatches(currentInput, matches)
         root.bangSearchPending = false
-        root.invalidBangTrigger = root.bangSearchResult ? "" : finishedTrigger
+        root.invalidBangTrigger = root.bangSearchResult || root.bangSearchCandidates.length
+          ? "" : finishedTrigger
         root.rebuildDisplay()
       }
       if (root.pendingBangTrigger && root.pendingBangTrigger !== finishedTrigger)

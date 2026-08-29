@@ -171,6 +171,42 @@ def resolve_query(
         "url": url,
     }
 
+def match_triggers(
+    prefix: str, registry: dict[str, list[str]], limit: int = 8
+) -> list[dict[str, str]]:
+    normalized = prefix.strip().lower()
+    if not normalized or not _TRIGGER.fullmatch(normalized) or limit <= 0:
+        return []
+
+    triggers = sorted(
+        (trigger for trigger in registry if trigger.startswith(normalized)),
+        key=lambda trigger: (trigger != normalized, len(trigger), trigger),
+    )
+    matches: list[dict[str, str]] = []
+    seen_destinations: set[tuple[str, str]] = set()
+    for trigger in triggers:
+        row = registry.get(trigger)
+        if not isinstance(row, list) or len(row) < 2:
+            continue
+        label, template = row[0], row[1]
+        if not isinstance(label, str) or not isinstance(template, str):
+            continue
+        if urlsplit(template).scheme.lower() not in {"http", "https"}:
+            continue
+
+        destination = (label.casefold(), template)
+        if destination in seen_destinations:
+            continue
+        seen_destinations.add(destination)
+        matches.append(
+            {"trigger": trigger, "label": label, "template": template}
+        )
+        if len(matches) == limit:
+            break
+    return matches
+
+
+
 
 def main() -> int:
     registry = load_registry()
@@ -178,8 +214,13 @@ def main() -> int:
         payload: Any = registry
     elif len(sys.argv) == 3 and sys.argv[1] == "--resolve":
         payload = resolve_query(sys.argv[2], registry)
+    elif len(sys.argv) == 3 and sys.argv[1] == "--match":
+        payload = match_triggers(sys.argv[2], registry)
     else:
-        print(f"usage: {Path(sys.argv[0]).name} [--resolve QUERY]", file=sys.stderr)
+        print(
+            f"usage: {Path(sys.argv[0]).name} [--resolve QUERY | --match PREFIX]",
+            file=sys.stderr,
+        )
         return 2
 
     json.dump(payload, sys.stdout, ensure_ascii=False, separators=(",", ":"))

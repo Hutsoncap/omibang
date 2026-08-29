@@ -36,9 +36,12 @@ Open the menu normally, then:
 | --- | --- |
 | `!` | Show the default search engine |
 | `!` then `Tab` | Select the default engine and type a query |
+| `!y` | List matching iBangs with an exact trigger first |
 | `!yt cats` | Search YouTube directly |
 | `!!ddg` then `Enter` | Make DuckDuckGo the default engine |
 | `!?` then `Enter` | Open Helium's complete iBang catalog |
+
+Use `Up` and `Down` to highlight a match. Press `Enter` or `Tab` to commit it; Omibang fills the complete trigger and adds a space so you can type the search query immediately.
 
 DuckDuckGo (`!ddg`) is the default on a fresh installation. Any exact trigger in Helium's catalog can replace it.
 
