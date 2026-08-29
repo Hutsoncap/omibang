@@ -6,6 +6,14 @@ Omibang replaces the built-in `omarchy.menu` plugin without changing its normal 
 
 ![Omibang preview](preview.png)
 
+## Screenshots
+
+| DuckDuckGo default | Direct iBang |
+| --- | --- |
+| ![DuckDuckGo default search](screenshots/default-search.png) | ![Direct Bing iBang](screenshots/direct-ibang.png) |
+| **Choose a default** | **Open Helium's catalog** |
+| ![Choose YouTube as the default](screenshots/set-default.png) | ![Open the Helium iBang catalog](screenshots/catalog.png) |
+
 ## Requirements
 
 - Omarchy with the Quickshell-based shell
