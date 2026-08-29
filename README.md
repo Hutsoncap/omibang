@@ -44,6 +44,8 @@ Open the menu normally, then:
 
 Use `Up` and `Down` to highlight a match. Press `Enter` or `Tab`: `!` searches commit the trigger and add a space so you can type the query immediately, while `!!` defaults save the highlighted engine.
 
+Each candidate shows its shortest available iBang at the right edge. Selecting the row uses that displayed shorthand, even when the longer alias you typed was the match.
+
 DuckDuckGo (`!ddg`) is the default on a fresh installation. Any exact trigger in Helium's catalog can replace it.
 
 ## Data and configuration

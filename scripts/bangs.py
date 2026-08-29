@@ -178,14 +178,11 @@ def match_triggers(
     if not normalized or not _TRIGGER.fullmatch(normalized) or limit <= 0:
         return []
 
-    triggers = sorted(
-        (trigger for trigger in registry if trigger.startswith(normalized)),
-        key=lambda trigger: (trigger != normalized, len(trigger), trigger),
-    )
-    matches: list[dict[str, str]] = []
-    seen_destinations: set[tuple[str, str]] = set()
-    for trigger in triggers:
-        row = registry.get(trigger)
+    valid_rows: dict[str, tuple[str, str, tuple[str, str]]] = {}
+    shortest_triggers: dict[tuple[str, str], str] = {}
+    for trigger, row in registry.items():
+        if not isinstance(trigger, str) or not _TRIGGER.fullmatch(trigger):
+            continue
         if not isinstance(row, list) or len(row) < 2:
             continue
         label, template = row[0], row[1]
@@ -195,11 +192,29 @@ def match_triggers(
             continue
 
         destination = (label.casefold(), template)
+        valid_rows[trigger] = (label, template, destination)
+        shortest = shortest_triggers.get(destination)
+        if shortest is None or (len(trigger), trigger) < (len(shortest), shortest):
+            shortest_triggers[destination] = trigger
+
+    triggers = sorted(
+        (trigger for trigger in valid_rows if trigger.startswith(normalized)),
+        key=lambda trigger: (trigger != normalized, len(trigger), trigger),
+    )
+    matches: list[dict[str, str]] = []
+    seen_destinations: set[tuple[str, str]] = set()
+    for trigger in triggers:
+        label, template, destination = valid_rows[trigger]
         if destination in seen_destinations:
             continue
         seen_destinations.add(destination)
         matches.append(
-            {"trigger": trigger, "label": label, "template": template}
+            {
+                "trigger": trigger,
+                "shortTrigger": shortest_triggers[destination],
+                "label": label,
+                "template": template,
+            }
         )
         if len(matches) == limit:
             break

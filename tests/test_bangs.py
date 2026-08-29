@@ -113,6 +113,10 @@ class BangRegistryTests(unittest.TestCase):
             [("y", "Yahoo!"), ("ya", "Yandex"), ("yad", "Yandex Translate")],
         )
 
+        yahoo_alias = bangs.match_triggers("yahoo", registry)
+        self.assertEqual(yahoo_alias[0]["trigger"], "yahoo")
+        self.assertEqual(yahoo_alias[0]["shortTrigger"], "y")
+
     def test_prefix_matches_respect_result_limit(self) -> None:
         registry = {
             trigger: [trigger.upper(), f"https://example.com/{trigger}?q={{searchTerms}}"]
@@ -122,6 +126,9 @@ class BangRegistryTests(unittest.TestCase):
         matches = bangs.match_triggers("a", registry, limit=2)
 
         self.assertEqual([match["trigger"] for match in matches], ["a", "aa"])
+        self.assertEqual(
+            [match["shortTrigger"] for match in matches], ["a", "aa"]
+        )
 
     def test_prefix_matches_reject_invalid_prefix(self) -> None:
         registry = {"yt": ["YouTube", "https://youtube.com/?q={searchTerms}"]}

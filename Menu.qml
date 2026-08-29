@@ -365,6 +365,7 @@ Item {
     return {
       query: input.query,
       trigger: String(base.trigger),
+      shortTrigger: String(base.shortTrigger || base.trigger),
       label: String(base.label),
       template: String(base.template),
       terms: input.terms,
@@ -416,7 +417,12 @@ Item {
     for (var i = 0; i < matches.length; i++) {
       var base = matches[i]
       if (!base || !base.trigger || !base.label || !base.template) continue
-      bangs[String(base.trigger).toLowerCase()] = base
+      var triggerKey = String(base.trigger).toLowerCase()
+      bangs[triggerKey] = base
+      var shortKey = String(base.shortTrigger || triggerKey).toLowerCase()
+      if (!bangs[shortKey]) {
+        bangs[shortKey] = Object.assign({}, base, { trigger: shortKey, shortTrigger: shortKey })
+      }
     }
     root.bangCache = bangs
     var prefixes = Object.assign({}, root.bangMatchCache)
@@ -478,9 +484,15 @@ Item {
   function bangDisplayRow(result) {
     if (!result || !result.trigger || !result.label) return null
     var terms = String(result.terms || "")
+    var shortcut = String(result.shortTrigger || result.trigger)
     var selected = result.selected && !terms
     var choice = !result.setDefault && !terms && !selected && !result.defaultRequest
-    var currentDefault = result.setDefault && result.trigger === root.defaultBang
+    var currentBase = root.bangCache[root.defaultBang]
+    var currentDefault = result.setDefault && (
+      result.trigger === root.defaultBang
+      || shortcut === root.defaultBang
+      || (currentBase && currentBase.template === result.template)
+    )
     var label = result.setDefault
       ? (result.candidate ? String(result.label) : "Default: " + String(result.label))
       : (terms
@@ -493,7 +505,7 @@ Item {
     var action = ""
     if (result.setDefault) {
       action = "python3 " + Util.shellQuote(root.defaultBangScriptPath)
-        + " set " + Util.shellQuote(String(result.trigger))
+        + " set " + Util.shellQuote(shortcut)
         + " && notify-send " + Util.shellQuote("Default iBang")
         + " " + Util.shellQuote(String(result.label) + " is now the default")
     } else if (result.url) {
@@ -501,15 +513,15 @@ Item {
     }
     return {
       itemId: result.setDefault
-        ? (result.candidate ? "web-search.default-choice:" + String(result.trigger) : "web-search.default-bang")
-        : (choice ? "web-search.bang-choice:" + String(result.trigger) : "web-search.bang"),
+        ? (result.candidate ? "web-search.default-choice:" + shortcut : "web-search.default-bang")
+        : (choice ? "web-search.bang-choice:" + shortcut : "web-search.bang"),
       kind: "action",
       icon: currentDefault ? "✓" : "",
       iconFont: "",
       appIcon: "",
       appId: "",
       label: label,
-      target: choice ? String(result.trigger) : "",
+      target: (result.candidate || choice) ? shortcut : "",
       detail: "",
       path: result.setDefault ? "Search settings" : "Web Search",
       childCount: 0,
@@ -1701,6 +1713,9 @@ Item {
               readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
               readonly property bool isApp: row.kind === "app"
               readonly property bool hasIcon: row.icon.length > 0 || row.isApp
+              readonly property bool isBangCandidate:
+                String(row.itemId || "").indexOf("web-search.bang-choice:") === 0
+                || String(row.itemId || "").indexOf("web-search.default-choice:") === 0
 
               width: ListView.view.width
               height: root.rowHeightForDetail(row.detail)
@@ -1785,12 +1800,27 @@ Item {
 
               Row {
                 id: trail
-                width: Style.space(14)
+                width: row.isBangCandidate
+                  ? Math.min(Style.space(64), Math.max(Style.space(18), bangShortcut.implicitWidth))
+                  : Style.space(14)
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
                 spacing: 0
 
+                Text {
+                  id: bangShortcut
+                  visible: row.isBangCandidate
+                  width: visible ? trail.width : 0
+                  text: visible ? "!" + row.target : ""
+                  color: row.hasCursor ? root.selectedText : root.foreground
+                  opacity: row.hasCursor ? 0.72 : 0.48
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  horizontalAlignment: Text.AlignRight
+                  elide: Text.ElideRight
+                  anchors.verticalCenter: parent.verticalCenter
+                }
                 Text {
                   visible: false
                   text: row.childCount
