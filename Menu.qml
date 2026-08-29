@@ -432,7 +432,7 @@ Item {
           ? String(result.label) + " active"
           : (result.defaultRequest
             ? "Search " + String(result.label)
-            : "!" + String(result.trigger) + " · " + String(result.label))))
+            : String(result.label))))
     var action = ""
     if (result.setDefault) {
       action = "python3 " + Util.shellQuote(root.defaultBangScriptPath)
