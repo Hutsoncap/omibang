@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.hutsoncap.omibang",
+  "name": "Omibang",
+  "version": "1.0.0",
+  "author": "Hutson",
+  "license": "MIT",
+  "description": "Omarchy's command menu with Helium iBang search and a configurable default engine.",
+  "kinds": [
+    "menu",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "menu": "Menu.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omibang",
+    "description": "Launches the Omarchy menu with iBang search",
+    "category": "Compositor",
+    "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.menu"
+  }
+}
