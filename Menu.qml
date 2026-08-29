@@ -378,7 +378,6 @@ Item {
   function isBangAutocompleteInput(input) {
     return !!input
       && !input.defaultRequest
-      && !input.setDefault
       && !input.selected
       && !String(input.terms || "")
   }
@@ -393,7 +392,10 @@ Item {
       if (String(base.trigger).toLowerCase() === input.trigger) exact = base
       if (root.isBangAutocompleteInput(input)) {
         var candidate = root.buildBangResult(input, base)
-        if (candidate) candidates.push(candidate)
+        if (candidate) {
+          candidate.candidate = true
+          candidates.push(candidate)
+        }
       }
     }
     root.bangSearchResult = root.buildBangResult(input, exact)
@@ -480,7 +482,7 @@ Item {
     var choice = !result.setDefault && !terms && !selected && !result.defaultRequest
     var currentDefault = result.setDefault && result.trigger === root.defaultBang
     var label = result.setDefault
-      ? "Default: " + String(result.label)
+      ? (result.candidate ? String(result.label) : "Default: " + String(result.label))
       : (terms
         ? "Search " + String(result.label)
         : (selected
@@ -498,7 +500,9 @@ Item {
       action = "omarchy launch browser " + Util.shellQuote(String(result.url))
     }
     return {
-      itemId: result.setDefault ? "web-search.default-bang" : (choice ? "web-search.bang-choice:" + String(result.trigger) : "web-search.bang"),
+      itemId: result.setDefault
+        ? (result.candidate ? "web-search.default-choice:" + String(result.trigger) : "web-search.default-bang")
+        : (choice ? "web-search.bang-choice:" + String(result.trigger) : "web-search.bang"),
       kind: "action",
       icon: currentDefault ? "✓" : "",
       iconFont: "",
