@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.hutsoncap.omibang",
   "name": "Omibang",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Hutson",
   "license": "MIT",
   "description": "Omarchy's command menu with Helium iBang search and a configurable default engine.",

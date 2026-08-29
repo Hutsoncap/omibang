@@ -561,7 +561,16 @@ Item {
       ? String(row.target || "") : ""
   }
 
+  function activateSelectedDefaultBang() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return false
+    var row = displayModel.get(root.selectedIndex)
+    if (String(row.itemId || "").indexOf("web-search.default-choice:") !== 0) return false
+    root.applySelected(row.itemId, row.action)
+    return true
+  }
+
   function requestBangInMenu() {
+    if (root.activateSelectedDefaultBang()) return true
     var choice = root.selectedBangChoice()
     if (choice && root.acceptBangInMenu(choice)) return true
     if (root.acceptBangInMenu("")) return true
@@ -584,7 +593,7 @@ Item {
     if (root.bangSearchCandidates.length
         && root.bangSearchCandidates[0].query === query) {
       return root.bangSearchCandidates.length > 1
-        ? "↑↓ choose · Enter" : "Enter selects"
+        ? "↑↓ · Enter/Tab" : "Enter/Tab selects"
     }
     var result = root.bangSearchResult
     if (result && result.query === query) {
