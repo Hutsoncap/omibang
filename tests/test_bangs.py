@@ -117,6 +117,22 @@ class BangRegistryTests(unittest.TestCase):
         self.assertEqual(yahoo_alias[0]["trigger"], "yahoo")
         self.assertEqual(yahoo_alias[0]["shortTrigger"], "y")
 
+    def test_equal_length_aliases_keep_the_matched_trigger(self) -> None:
+        youtube = ["YouTube", "https://youtube.com/results?search_query={searchTerms}"]
+        registry = {
+            "ty": youtube,
+            "yt": youtube,
+            "youtube": youtube,
+        }
+
+        yt = bangs.match_triggers("yt", registry)
+        self.assertEqual(yt[0]["trigger"], "yt")
+        self.assertEqual(yt[0]["shortTrigger"], "yt")
+
+        youtube_alias = bangs.match_triggers("youtube", registry)
+        self.assertEqual(youtube_alias[0]["trigger"], "youtube")
+        self.assertEqual(youtube_alias[0]["shortTrigger"], "ty")
+
     def test_prefix_matches_respect_result_limit(self) -> None:
         registry = {
             trigger: [trigger.upper(), f"https://example.com/{trigger}?q={{searchTerms}}"]
@@ -150,6 +166,78 @@ class BangRegistryTests(unittest.TestCase):
 
             fetch.assert_not_called()
             self.assertEqual(result, payload["bangs"])
+
+    def test_registry_skips_oversize_labels_and_templates(self) -> None:
+        compact = bangs.compact_registry(
+            [
+                {
+                    "s": "<img src='https://evil.example'>",
+                    "t": "htmlish",
+                    "u": "https://example.com/?q={searchTerms}",
+                },
+                {
+                    "s": "x" * (bangs.MAX_LABEL_CHARS + 1),
+                    "t": "biglabel",
+                    "u": "https://example.com/?q={searchTerms}",
+                },
+                {
+                    "s": "Ok",
+                    "t": "ok",
+                    "u": "https://example.com/" + ("a" * (bangs.MAX_TEMPLATE_CHARS + 1)),
+                },
+                {
+                    "s": "Kept",
+                    "t": "kept",
+                    "u": "https://example.com/?q={searchTerms}",
+                },
+            ]
+        )
+
+        self.assertEqual(set(compact), {"htmlish", "kept"})
+        self.assertEqual(compact["htmlish"][0], "<img src='https://evil.example'>")
+
+    def test_registry_caps_collection_size(self) -> None:
+        with mock.patch.object(bangs, "MAX_TRIGGERS", 8), mock.patch.object(
+            bangs, "MAX_REGISTRY_ENTRIES", 8
+        ):
+            entries = [
+                {
+                    "s": f"Site {index}",
+                    "t": f"t{index}",
+                    "u": f"https://example.com/{index}?q={{searchTerms}}",
+                }
+                for index in range(25)
+            ]
+
+            compact = bangs.compact_registry(entries)
+
+        self.assertEqual(len(compact), 8)
+
+    def test_cached_registry_drops_oversize_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bangs.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "updatedAt": 1000,
+                        "bangs": {
+                            "ok": ["DuckDuckGo", "https://duckduckgo.com/?q={searchTerms}"],
+                            "big": [
+                                "x" * (bangs.MAX_LABEL_CHARS + 1),
+                                "https://example.com/?q={searchTerms}",
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            cached = bangs.read_cache(path)
+
+        self.assertIsNotNone(cached)
+        assert cached is not None
+        self.assertEqual(set(cached[1]), {"ok"})
 
     def test_stale_cache_survives_refresh_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

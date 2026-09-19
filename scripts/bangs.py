@@ -18,9 +18,18 @@ from urllib.request import Request, urlopen
 SERVICE_URL = "https://services.helium.imput.net/bangs.json"
 CACHE_TTL_SECONDS = 24 * 60 * 60
 MAX_DOWNLOAD_BYTES = 16 * 1024 * 1024
-_TRIGGER = re.compile(r"^[a-z0-9._-]+$")
+MAX_LABEL_CHARS = 256
+MAX_TEMPLATE_CHARS = 2048
+MAX_TRIGGER_CHARS = 32
+MAX_ALIASES_PER_ENTRY = 32
+MAX_REGISTRY_ENTRIES = 25_000
+MAX_TRIGGERS = 50_000
+_TRIGGER = re.compile(rf"^[a-z0-9._-]{{1,{MAX_TRIGGER_CHARS}}}$")
 _TRAILING_COMMA = re.compile(r",(?=\s*[}\]])")
-_BANG_QUERY = re.compile(r"^!([a-z0-9._-]+)(?:\s+([\s\S]*))?$", re.IGNORECASE)
+_BANG_QUERY = re.compile(
+    rf"^!([a-z0-9._-]{{1,{MAX_TRIGGER_CHARS}}})(?:\s+([\s\S]*))?$",
+    re.IGNORECASE,
+)
 _SEARCH_PLACEHOLDERS = ("{searchTerms}", "{{{s}}}", "{{s}}", "%s")
 
 
@@ -36,19 +45,39 @@ def parse_jsonc(raw: str) -> Any:
     return json.loads(_TRAILING_COMMA.sub("", without_comments))
 
 
+def usable_trigger(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trigger = value.strip().lower()
+    if not _TRIGGER.fullmatch(trigger):
+        return None
+    return trigger
+
+
+def usable_row(label: Any, template: Any) -> list[str] | None:
+    if not isinstance(label, str) or not isinstance(template, str):
+        return None
+    if not label or len(label) > MAX_LABEL_CHARS:
+        return None
+    if not template or len(template) > MAX_TEMPLATE_CHARS:
+        return None
+    if urlsplit(template).scheme.lower() not in {"http", "https"}:
+        return None
+    return [label, template]
+
+
 def compact_registry(entries: Any) -> dict[str, list[str]]:
     if not isinstance(entries, list):
         raise ValueError("bang registry root must be an array")
 
     bangs: dict[str, list[str]] = {}
-    for entry in entries:
+    for entry in entries[:MAX_REGISTRY_ENTRIES]:
+        if len(bangs) >= MAX_TRIGGERS:
+            break
         if not isinstance(entry, dict):
             continue
-        label = entry.get("s")
-        template = entry.get("u")
-        if not isinstance(label, str) or not isinstance(template, str):
-            continue
-        if urlsplit(template).scheme.lower() not in {"http", "https"}:
+        row = usable_row(entry.get("s"), entry.get("u"))
+        if row is None:
             continue
 
         triggers: list[Any] = []
@@ -57,19 +86,37 @@ def compact_registry(entries: Any) -> dict[str, list[str]]:
             triggers.append(primary)
         aliases = entry.get("ts")
         if isinstance(aliases, list):
-            triggers.extend(aliases)
+            triggers.extend(aliases[:MAX_ALIASES_PER_ENTRY])
 
         for value in triggers:
-            if not isinstance(value, str):
+            trigger = usable_trigger(value)
+            if trigger is None:
                 continue
-            trigger = value.strip().lower()
-            if not _TRIGGER.fullmatch(trigger):
-                continue
-            bangs.setdefault(trigger, [label, template])
+            bangs.setdefault(trigger, row)
+            if len(bangs) >= MAX_TRIGGERS:
+                break
 
     if not bangs:
         raise ValueError("bang registry contained no usable triggers")
     return bangs
+
+
+def sanitize_bangs(bangs: Any) -> dict[str, list[str]]:
+    if not isinstance(bangs, dict) or not bangs:
+        return {}
+
+    clean: dict[str, list[str]] = {}
+    for trigger, row in bangs.items():
+        if len(clean) >= MAX_TRIGGERS:
+            break
+        key = usable_trigger(trigger)
+        if key is None or not isinstance(row, list) or len(row) < 2:
+            continue
+        usable = usable_row(row[0], row[1])
+        if usable is None:
+            continue
+        clean[key] = usable
+    return clean
 
 
 def read_cache(path: Path) -> tuple[int, dict[str, list[str]]] | None:
@@ -80,8 +127,8 @@ def read_cache(path: Path) -> tuple[int, dict[str, list[str]]] | None:
     if not isinstance(payload, dict) or payload.get("version") != 1:
         return None
     updated_at = payload.get("updatedAt")
-    bangs = payload.get("bangs")
-    if not isinstance(updated_at, int) or not isinstance(bangs, dict) or not bangs:
+    bangs = sanitize_bangs(payload.get("bangs"))
+    if not isinstance(updated_at, int) or not bangs:
         return None
     return updated_at, bangs
 
@@ -145,12 +192,10 @@ def resolve_query(
     row = registry.get(trigger)
     if not isinstance(row, list) or len(row) < 2:
         return None
-
-    label, template = row[0], row[1]
-    if not isinstance(label, str) or not isinstance(template, str):
+    usable = usable_row(row[0], row[1])
+    if usable is None:
         return None
-    if urlsplit(template).scheme.lower() not in {"http", "https"}:
-        return None
+    label, template = usable
 
     terms = (match.group(2) or "").strip()
     url = ""
@@ -181,20 +226,19 @@ def match_triggers(
     valid_rows: dict[str, tuple[str, str, tuple[str, str]]] = {}
     shortest_triggers: dict[tuple[str, str], str] = {}
     for trigger, row in registry.items():
-        if not isinstance(trigger, str) or not _TRIGGER.fullmatch(trigger):
+        key = usable_trigger(trigger)
+        if key is None or not isinstance(row, list) or len(row) < 2:
             continue
-        if not isinstance(row, list) or len(row) < 2:
+        usable = usable_row(row[0], row[1])
+        if usable is None:
             continue
-        label, template = row[0], row[1]
-        if not isinstance(label, str) or not isinstance(template, str):
-            continue
-        if urlsplit(template).scheme.lower() not in {"http", "https"}:
-            continue
+        label, template = usable
+        trigger = key
 
         destination = (label.casefold(), template)
         valid_rows[trigger] = (label, template, destination)
         shortest = shortest_triggers.get(destination)
-        if shortest is None or (len(trigger), trigger) < (len(shortest), shortest):
+        if shortest is None or len(trigger) < len(shortest):
             shortest_triggers[destination] = trigger
 
     triggers = sorted(
@@ -208,10 +252,11 @@ def match_triggers(
         if destination in seen_destinations:
             continue
         seen_destinations.add(destination)
+        shortest = shortest_triggers[destination]
         matches.append(
             {
                 "trigger": trigger,
-                "shortTrigger": shortest_triggers[destination],
+                "shortTrigger": trigger if len(trigger) == len(shortest) else shortest,
                 "label": label,
                 "template": template,
             }

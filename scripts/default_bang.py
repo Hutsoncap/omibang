@@ -95,8 +95,9 @@ def set_default(
 ) -> str:
     normalized = trigger.strip().lower()
     catalog = registry if registry is not None else bangs.load_registry()
-    row = catalog.get(normalized)
-    if not row or len(row) < 2:
+    row = catalog.get(normalized) if bangs.usable_trigger(normalized) else None
+    usable = bangs.usable_row(row[0], row[1]) if isinstance(row, list) and len(row) >= 2 else None
+    if usable is None:
         raise ValueError(f"!{normalized} is not in Helium's bang catalog")
 
     target = path or config_path()
@@ -104,7 +105,7 @@ def set_default(
     payload["version"] = 1
     payload["defaultBang"] = normalized
     atomic_write(target, payload)
-    return str(row[0])
+    return usable[0]
 
 
 def main() -> int:
