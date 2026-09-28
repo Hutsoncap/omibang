@@ -120,14 +120,7 @@ Item {
   property int dividerHeight: Style.space(17)
   property bool searchDivider: false
   property int layoutSerial: 0
-  property int cardWidth: Math.min(
-    root.dmenuActive
-      ? Style.space(root.dmenuWidth)
-      : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "style.font")
-        ? Style.space(520)
-        : Style.space(300)),
-    panel.width - Style.gapsOut * 2
-  )
+  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : ((root.activeMenu === "trigger.capture.screenrecord" || root.activeMenu === "style.font") ? Style.space(520) : Style.space(300)), panel.width - Style.gapsOut * 2)
   property int visibleRowsHeight: root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)
   property int cardHeight: root.dmenuActive
     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
@@ -156,6 +149,9 @@ Item {
   function runAction(action) {
     var command = String(action || "")
     if (!command) return
+
+    var summon = MenuModel.summonAction(command)
+    if (summon && root.shell && root.shell.summon(summon.id, summon.payload)) return
 
     Util.execDetached(command)
   }
@@ -1571,15 +1567,10 @@ Item {
       if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards() })
     }
   }
-  PanelWindow {
+  OverlayWindow {
     id: panel
-    visible: root.opened && root.rowsLoaded
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
+    shown: root.opened && root.rowsLoaded
     WlrLayershell.namespace: "omarchy-menu"
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
-    exclusionMode: ExclusionMode.Ignore
 
     // The card opens centered exactly as always. The first search keystroke
     // or submenu move freezes the top line where it currently sits — from
@@ -1592,12 +1583,13 @@ Item {
     readonly property int centeredTop: Math.max(Style.gapsOut, Math.round((height - root.cardHeight) / 2))
     readonly property int effectiveCardTop: cardTop >= 0 ? cardTop : centeredTop
     function freezeCardTop() {
-      if (visible && cardTop < 0) {
+      if (shown && cardTop < 0) {
         cardTop = effectiveCardTop
         maxRowsHeight = root.visibleRowsHeight
       }
     }
-    onVisibleChanged: if (!visible) { cardTop = -1; maxRowsHeight = -1 }
+    // The surface stays mapped between opens, so closing is shown going false.
+    onShownChanged: if (!shown) { cardTop = -1; maxRowsHeight = -1 }
 
     Rectangle {
       anchors.fill: parent
@@ -1796,6 +1788,8 @@ Item {
 
               width: ListView.view.width
               height: root.rowHeightForDetail(row.detail)
+              // Faded: the row is here to say the software is already
+              // installed, not to be picked.
               opacity: row.disabled ? 0.4 : 1
               radius: root.cornerRadius
               color: row.hasCursor ? root.selectedBackground : "transparent"
